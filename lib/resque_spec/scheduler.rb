@@ -8,6 +8,7 @@ module ResqueSpec
           alias :enqueue_at_without_resque_spec :enqueue_at
           alias :enqueue_in_without_resque_spec :enqueue_in
           alias :remove_delayed_without_resque_spec :remove_delayed
+          alias :remove_delayed_selection_without_resque_spec :remove_delayed_selection
         end
       end
       klass.extend(ResqueSpec::SchedulerExtMethods)
@@ -39,11 +40,33 @@ module ResqueSpec
       ResqueSpec.enqueue_in_with_queue(queue, time, klass, *args)
     end
 
+
     def remove_delayed(klass, *args)
       return remove_delayed_without_resque_spec(klass, *args) if ResqueSpec.disable_ext && respond_to?(:remove_delayed_without_resque_spec)
 
       ResqueSpec.remove_delayed(klass, *args)
     end
+
+    def remove_delayed_selection(klass, &block)
+      return remove_delayed_selection_without_resque_spec(klass, *args) if ResqueSpec.disable_ext && respond_to?(:remove_delayed_selection_without_resque_spec)
+      ResqueSpec.remove_delayed_selection(klass) do |args| 
+        yield(args.as_json) 
+      end
+    end
+  end
+
+  def remove_delayed_selection(klass = nil, &block)
+    fail ArgumentError, 'Please supply a block' unless block_given?
+
+    sched_queue = queue_by_name(schedule_queue_name(klass))
+    count_before_remove = sched_queue.length
+    sched_queue.delete_if do |job|
+
+      block_response = yield(job[:args])
+      job[:class] == klass.to_s && block_response
+    end
+    # Return number of removed items to match Resque Scheduler behaviour
+    count_before_remove - sched_queue.length
   end
 
   def enqueue_at(time, klass, *args)
@@ -64,6 +87,7 @@ module ResqueSpec
   end
 
   def remove_delayed(klass, *args)
+
     sched_queue = queue_by_name(schedule_queue_name(klass))
     count_before_remove = sched_queue.length
     sched_queue.delete_if do |job|
